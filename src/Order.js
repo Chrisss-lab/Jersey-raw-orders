@@ -4,13 +4,15 @@ import logo from "./photo-jersey-raw-logo.jpg";
 import BackgroundImage from "./Photos/Food2.jpg";
 
 const recipes = [
-  "Royal Carnivore",
-  "Daily Thrive",
-  "Puppy",
-  "Joint",
-  "Alpha Bite Beef Mix",
-  "Wild Whiskers",
-  "Fetch & Feast Chicken"
+  { name: "Royal Carnivore", price: 12.99 },
+  { name: "Daily Thrive", price: 4.25 },
+  { name: "Growing Paws Puppy", price: 2.99 },
+  { name: "Puppy Thrive", price: 4.99 },
+  { name: "Joint Care Blend", price: 5.25 },
+  { name: "Alpha Bite Beef", price: 6.0 },
+  { name: "Wild Balance", price: 7.99 },
+  { name: "Fetch and Feast Chicken", price: 2.25 },
+  { name: "Wild Whiskers", price: 5.25 },
 ];
 
 export default function OrderForm() {
@@ -19,19 +21,17 @@ export default function OrderForm() {
     name: "",
     phone: "",
     email: "",
+    address: "",
     recipe: "",
-    amount: 1,
-    notes: ""
+    container: "1 lb tub",
+    amount: "",
+    notes: "",
+    coupon: "",  // coupon field
   });
 
-  // Pre-fill from calculator link (recipe & weight)
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const recipeParam = params.get("recipe");
-    const amountParam = params.get("weight");
-    if (recipeParam) setFormData((prev) => ({ ...prev, recipe: recipeParam }));
-    if (amountParam) setFormData((prev) => ({ ...prev, amount: amountParam }));
-  }, [location.search]);
+  const [totals, setTotals] = useState({ subtotal: 0, tax: 0, total: 0 });
+  const [warning, setWarning] = useState("");
+  const TAX_RATE = 0.06625;
 
   const inputStyle = {
     padding: "12px",
@@ -40,7 +40,7 @@ export default function OrderForm() {
     width: "100%",
     boxSizing: "border-box",
     fontSize: "1em",
-    outline: "none"
+    outline: "none",
   };
 
   const buttonStyle = {
@@ -52,35 +52,98 @@ export default function OrderForm() {
     cursor: "pointer",
     fontSize: "1em",
     fontWeight: "bold",
-    transition: "background-color 0.3s"
+    transition: "background-color 0.3s",
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const recipeParam = params.get("recipe");
+    const amountParam = params.get("weight");
+    if (recipeParam) setFormData((prev) => ({ ...prev, recipe: recipeParam }));
+    if (amountParam)
+      setFormData((prev) => ({ ...prev, amount: Math.floor(Number(amountParam)) }));
+  }, [location.search]);
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    let { name, value } = e.target;
+
+    if (name === "amount") {
+      value = value.replace(/\D/g, "");
+    }
+
+    setFormData({ ...formData, [name]: value });
   };
 
-  const handleSubmit = (e) => {
+  useEffect(() => {
+    const selectedRecipe = recipes.find((r) => r.name === formData.recipe);
+    const pricePerLb = selectedRecipe ? selectedRecipe.price : 0;
+    const lbs = parseInt(formData.amount) || 0;
+
+    if (lbs > 0) {
+      if (formData.container === "2 lb meat chubs" && lbs % 2 !== 0) {
+        setWarning("Amount must be divisible by 2 for 2 lb meat chubs.");
+      } else if (
+        (formData.container === "1 lb tub" || formData.container === "2 oz tub (Cat Food)") &&
+        !Number.isInteger(lbs)
+      ) {
+        setWarning("Amount must be a whole number.");
+      } else {
+        setWarning("");
+      }
+    } else {
+      setWarning("");
+    }
+
+    const subtotal = pricePerLb * lbs;
+    const tax = subtotal * TAX_RATE;
+    const total = subtotal + tax;
+    setTotals({ subtotal, tax, total });
+  }, [formData.amount, formData.recipe, formData.container]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (warning) return;
 
-    const subject = `New Order Request from ${formData.name} – ${formData.recipe}`;
-    const body = `
-New Order Request
+    const payload = {
+      name: formData.name,
+      phone: formData.phone,
+      email: formData.email,
+      address: formData.address,
+      recipe: formData.recipe,
+      container: formData.container,
+      amount: formData.amount,
+      coupon: formData.coupon,  // send coupon to sheet
+      total: totals.total.toFixed(2),
+    };
 
-Name: ${formData.name}
-Phone: ${formData.phone}
-Email: ${formData.email}
-Recipe: ${formData.recipe}
-Amount: ${formData.amount} lbs
-Notes: ${formData.notes || "N/A"}
-
-Sent via Jersey Raw Website
-    `;
-
-    const mailtoLink = `mailto:JerseyRawHelp@gmail.com?subject=${encodeURIComponent(
-      subject
-    )}&body=${encodeURIComponent(body)}`;
-
-    window.location.href = mailtoLink;
+    try {
+      const response = await fetch(
+        "https://script.google.com/macros/s/AKfycbzkOj4kkDHK4niZeJ4TEGtZ5lTGtec6Yrt64y-XQbfWGmnKN_71zyY4NeTIoIvCQVRL/exec",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }
+      );
+      const data = await response.json();
+      if (data.status === "success") {
+        alert("Order submitted successfully!");
+        setFormData({
+          name: "",
+          phone: "",
+          email: "",
+          address: "",
+          recipe: "",
+          container: "1 lb tub",
+          amount: "",
+          notes: "",
+          coupon: "",  // reset coupon
+        });
+      } else {
+        alert("Submission failed: " + data.message);
+      }
+    } catch (error) {
+      alert("Submission failed: " + error.message);
+    }
   };
 
   return (
@@ -95,10 +158,9 @@ Sent via Jersey Raw Website
         justifyContent: "center",
         alignItems: "center",
         fontFamily: "Arial, sans-serif",
-        position: "relative"
+        position: "relative",
       }}
     >
-      {/* Overlay */}
       <div
         style={{
           position: "absolute",
@@ -107,7 +169,7 @@ Sent via Jersey Raw Website
           width: "100%",
           height: "100%",
           backgroundColor: "rgba(0,0,0,0.25)",
-          zIndex: 0
+          zIndex: 0,
         }}
       ></div>
 
@@ -120,7 +182,7 @@ Sent via Jersey Raw Website
           padding: "25px 30px",
           background: "rgba(255,255,255,0.9)",
           borderRadius: "15px",
-          boxShadow: "0 10px 30px rgba(0,0,0,0.1)"
+          boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
         }}
       >
         <img
@@ -134,7 +196,7 @@ Sent via Jersey Raw Website
             borderRadius: "50%",
             objectFit: "cover",
             boxShadow: "0 6px 20px rgba(0,0,0,0.3)",
-            opacity: 0.95
+            opacity: 0.95,
           }}
         />
 
@@ -142,7 +204,7 @@ Sent via Jersey Raw Website
           style={{
             textAlign: "center",
             color: "#2b6e44",
-            marginBottom: "25px"
+            marginBottom: "25px",
           }}
         >
           Place Your Order
@@ -161,6 +223,7 @@ Sent via Jersey Raw Website
             required
             style={inputStyle}
           />
+
           <input
             type="tel"
             name="phone"
@@ -170,11 +233,22 @@ Sent via Jersey Raw Website
             required
             style={inputStyle}
           />
+
           <input
             type="email"
             name="email"
             placeholder="Email"
             value={formData.email}
+            onChange={handleChange}
+            required
+            style={inputStyle}
+          />
+
+          <input
+            type="text"
+            name="address"
+            placeholder="Address"
+            value={formData.address}
             onChange={handleChange}
             required
             style={inputStyle}
@@ -189,22 +263,32 @@ Sent via Jersey Raw Website
           >
             <option value="">-- Select Recipe --</option>
             {recipes.map((r) => (
-              <option key={r} value={r}>
-                {r}
+              <option key={r.name} value={r.name}>
+                {r.name} – ${r.price.toFixed(2)}/lb
               </option>
             ))}
           </select>
 
-          <input
-            type="number"
-            name="amount"
-            min="1"
-            step="1"
-            value={formData.amount}
+          <select
+            name="container"
+            value={formData.container}
             onChange={handleChange}
             required
             style={inputStyle}
-            placeholder="Amount (lbs)"
+          >
+            <option value="1 lb tub">1 lb Tub</option>
+            <option value="2 lb meat chubs">2 lb Meat Chubs</option>
+            <option value="2 oz tub (Cat Food)">2 oz Tub (Cat Food)</option>
+          </select>
+
+          <input
+            type="text"
+            name="amount"
+            value={formData.amount}
+            onChange={handleChange}
+            required
+            placeholder="Amount"
+            style={inputStyle}
           />
 
           <textarea
@@ -216,17 +300,45 @@ Sent via Jersey Raw Website
             style={{ ...inputStyle, resize: "vertical" }}
           />
 
+          {/* Coupon field */}
+          <input
+            type="text"
+            name="coupon"
+            placeholder="Coupon Code (optional)"
+            value={formData.coupon}
+            onChange={handleChange}
+            style={inputStyle}
+          />
+
+          <div
+            style={{
+              backgroundColor: "#f3f7f5",
+              borderRadius: "10px",
+              padding: "15px",
+              fontSize: "1em",
+              color: "#2b6e44",
+              lineHeight: 1.6,
+            }}
+          >
+            <strong>Order Summary</strong>
+            <br />
+            Subtotal: ${totals.subtotal.toFixed(2)}
+            <br />
+            NJ Sales Tax (6.625%): ${totals.tax.toFixed(2)}
+            <br />
+            <strong>Total: ${totals.total.toFixed(2)}</strong>
+          </div>
+
           <button
             type="submit"
-            style={buttonStyle}
-            onMouseOver={(e) =>
-              (e.currentTarget.style.backgroundColor = "#1f5535")
-            }
-            onMouseOut={(e) =>
-              (e.currentTarget.style.backgroundColor = "#2b6e44")
-            }
+            disabled={!!warning}
+            style={{
+              ...buttonStyle,
+              opacity: warning ? 0.6 : 1,
+              cursor: warning ? "not-allowed" : "pointer",
+            }}
           >
-            Send Order Email
+            Submit Order
           </button>
         </form>
       </div>
